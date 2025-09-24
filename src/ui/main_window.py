@@ -1,26 +1,28 @@
 # src/ui/main_window.py
 import json
 from datetime import datetime
+from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QGridLayout, QLineEdit, QDialog, QAbstractItemView,
-    QFormLayout, QComboBox, QTextEdit, QDateEdit, QDialogButtonBox, QMessageBox
+    QListWidget, QListWidgetItem, QGridLayout, QLineEdit, QDialog,
+    QFormLayout, QComboBox, QTextEdit, QDateEdit, QDialogButtonBox, QMessageBox,
+    QFileDialog, QMenuBar, QMenu, QAbstractItemView
 )
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QAction
 from models.task import Task
+from db import db
+from services import export as export_service
 
 PRIORITY_ROWS = ["high", "medium", "low"]    # hàng: top -> bottom
 URGENCY_COLS = ["low", "medium", "high"]     # cột: left -> right
 
 class CellListWidget(QListWidget):
-    """Custom QListWidget that knows its importance/urgency and
-       updates tasks' metadata after drop."""
-    def __init__(self, importance: str, urgency: str, parent=None):
+    def __init__(self, importance: str, urgency: str, on_cell_changed=None, parent=None):
         super().__init__(parent)
         self.importance = importance
         self.urgency = urgency
-        # allow drag and drop between lists
+        self.on_cell_changed = on_cell_changed
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
@@ -29,7 +31,7 @@ class CellListWidget(QListWidget):
 
     def dropEvent(self, event):
         super().dropEvent(event)
-        # After drop, iterate all items in this cell and set their importance/urgency
+        # After drop, update items' metadata & notify
         for i in range(self.count()):
             item = self.item(i)
             try:
@@ -40,16 +42,17 @@ class CellListWidget(QListWidget):
                     d["urgency"] = self.urgency
                     d["updated_at"] = datetime.utcnow().isoformat()
                     item.setData(Qt.UserRole, json.dumps(d))
-                    # update visual text if you want (title only)
                     item.setText(d.get("title", "<no title>"))
-            except Exception as e:
-                # ignore items without json payload
+            except Exception:
                 pass
+        # call callback to persist changes
+        if callable(self.on_cell_changed):
+            self.on_cell_changed(self.importance, self.urgency)
 
 class AddEditTaskDialog(QDialog):
     def __init__(self, parent=None, task: Task=None):
         super().__init__(parent)
-        self.setWindowTitle("Task" if task else "Add Task")
+        self.setWindowTitle("Edit Task" if task else "Add Task")
         self.task = task
         self.build_ui()
         if task:
@@ -85,7 +88,6 @@ class AddEditTaskDialog(QDialog):
         self.importance_cb.setCurrentText(task.importance)
         self.urgency_cb.setCurrentText(task.urgency)
         if task.due_date:
-            # due_date stored as "YYYY-MM-DD"
             from PySide6.QtCore import QDate
             parts = task.due_date.split("-")
             try:
@@ -118,14 +120,31 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Eisenhower 3x3 - Prototype")
-        self.tasks = {}  # id -> Task (in-memory store)
+        self.tasks = {}  # id -> Task (in-memory)
+        db.init_db_if_needed()
         self._setup_ui()
+        self._load_tasks_from_db()
 
     def _setup_ui(self):
+        # Menu
+        menubar = QMenuBar(self)
+        file_menu = QMenu("&File", self)
+        export_csv = QAction("Export CSV", self)
+        export_csv.triggered.connect(self.on_export_csv)
+        export_xlsx = QAction("Export Excel (.xlsx)", self)
+        export_xlsx.triggered.connect(self.on_export_xlsx)
+        import_csv = QAction("Import CSV", self)
+        import_csv.triggered.connect(self.on_import_csv)
+        file_menu.addAction(export_csv)
+        file_menu.addAction(export_xlsx)
+        file_menu.addAction(import_csv)
+        menubar.addMenu(file_menu)
+        self.setMenuBar(menubar)
+
         central = QWidget()
         v = QVBoxLayout(central)
 
-        # toolbar (simple)
+        # toolbar
         toolbar = QHBoxLayout()
         add_btn = QPushButton("+ Add Task")
         add_btn.clicked.connect(self.on_add_task)
@@ -144,22 +163,35 @@ class MainWindow(QMainWindow):
         grid.setSpacing(10)
 
         self.cells = {}  # (importance, urgency) -> CellListWidget
-
         for row_idx, imp in enumerate(PRIORITY_ROWS):
             for col_idx, urg in enumerate(URGENCY_COLS):
                 cell_container = QWidget()
                 cell_layout = QVBoxLayout(cell_container)
-                header = QLabel(f"Importance={imp.capitalize()}  •  Urgency={urg.capitalize()}")
+                header = QLabel(f"{imp.capitalize()} / {urg.capitalize()}")
                 header.setFont(QFont("", 9, QFont.Bold))
-                listw = CellListWidget(importance=imp, urgency=urg)
-                listw.itemDoubleClicked.connect(self.on_item_double_clicked)
+                lw = CellListWidget(importance=imp, urgency=urg, on_cell_changed=self.on_cell_changed)
+                lw.itemDoubleClicked.connect(self.on_item_double_clicked)
                 cell_layout.addWidget(header)
-                cell_layout.addWidget(listw)
+                cell_layout.addWidget(lw)
                 grid.addWidget(cell_container, row_idx, col_idx)
-                self.cells[(imp, urg)] = listw
+                self.cells[(imp, urg)] = lw
 
         v.addWidget(grid_widget)
         self.setCentralWidget(central)
+
+    def _load_tasks_from_db(self):
+        tasks = db.load_all_tasks()
+        for t in tasks:
+            self.tasks[t.id] = t
+            self._add_task_item_to_cell(t)
+
+    def _add_task_item_to_cell(self, task: Task):
+        cell = self.cells.get((task.importance, task.urgency))
+        if not cell:
+            return
+        item = QListWidgetItem(task.title)
+        item.setData(Qt.UserRole, json.dumps(task.to_dict()))
+        cell.addItem(item)
 
     def on_add_task(self):
         dlg = AddEditTaskDialog(self)
@@ -174,17 +206,10 @@ class MainWindow(QMainWindow):
                 urgency=data["urgency"],
                 due_date=data["due_date"]
             )
+            t.updated_at = data["updated_at"]
             self.tasks[t.id] = t
+            db.save_task(t)  # persist immediately
             self._add_task_item_to_cell(t)
-
-    def _add_task_item_to_cell(self, task: Task):
-        cell = self.cells.get((task.importance, task.urgency))
-        if not cell:
-            return
-        item = QListWidgetItem(task.title)
-        # store full task as json string in UserRole
-        item.setData(Qt.UserRole, json.dumps(task.to_dict()))
-        cell.addItem(item)
 
     def on_item_double_clicked(self, item: QListWidgetItem):
         raw = item.data(Qt.UserRole)
@@ -197,35 +222,86 @@ class MainWindow(QMainWindow):
             newdata = dlg.get_task_data()
             if not newdata:
                 return
-            # update task object
+            # update task
             t.title = newdata["title"]
             t.description = newdata["description"]
             t.importance = newdata["importance"]
             t.urgency = newdata["urgency"]
             t.due_date = newdata["due_date"]
             t.updated_at = newdata["updated_at"]
-            # persist in memory
+            # in-memory & DB
             self.tasks[t.id] = t
-            # update UI: remove item from all cells (if moved), then add to target cell
-            item_widget = self.sender()  # this is tricky: we have item from signal, not the list
-            # safest approach: remove the clicked item from its current parent list and re-add
-            # find parent list widget by iterating cells
-            for (imp, urg), lw in self.cells.items():
-                # find equivalent item by comparing object identity or title+id stored
+            db.save_task(t)
+            # update UI: find and remove the original item from any cell, then add updated
+            found = None
+            for lw in self.cells.values():
                 for i in range(lw.count()):
                     it = lw.item(i)
-                    if it is item:
-                        lw.takeItem(i)
-                        break
+                    raw2 = it.data(Qt.UserRole)
+                    if not raw2:
+                        continue
+                    try:
+                        d2 = json.loads(raw2)
+                        if d2.get("id") == t.id:
+                            lw.takeItem(i)
+                            found = True
+                            break
+                    except Exception:
+                        continue
+                if found:
+                    break
             self._add_task_item_to_cell(t)
+
+    def on_cell_changed(self, importance: str, urgency: str):
+        # persist all tasks in this cell after drag-drop
+        lw = self.cells.get((importance, urgency))
+        if not lw:
+            return
+        for i in range(lw.count()):
+            it = lw.item(i)
+            raw = it.data(Qt.UserRole)
+            if not raw:
+                continue
+            try:
+                d = json.loads(raw)
+                t = Task.from_dict(d)
+                # save
+                self.tasks[t.id] = t
+                db.save_task(t)
+            except Exception:
+                continue
 
     def on_search(self, text):
         q = text.strip().lower()
         for lw in self.cells.values():
             for i in range(lw.count()):
                 it = lw.item(i)
-                raw = it.data(Qt.UserRole)
                 title = it.text().lower()
-                visible = (q in title) if q else True
-                lw.setRowHidden(i, not visible) if hasattr(lw, "setRowHidden") else it.setHidden(not visible)
+                it.setHidden(False if (not q or q in title) else True)
 
+    # Export/Import handlers
+    def on_export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Export CSV", str(Path.home() / "tasks.csv"), "CSV Files (*.csv)")
+        if not path:
+            return
+        tasks = list(self.tasks.values())
+        export_service.export_tasks_to_csv(tasks, path)
+        QMessageBox.information(self, "Export", f"Exported {len(tasks)} tasks to {path}")
+
+    def on_export_xlsx(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Export Excel", str(Path.home() / "tasks.xlsx"), "Excel Files (*.xlsx)")
+        if not path:
+            return
+        tasks = list(self.tasks.values())
+        export_service.export_tasks_to_excel(tasks, path)
+        QMessageBox.information(self, "Export", f"Exported {len(tasks)} tasks to {path}")
+
+    def on_import_csv(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import CSV", str(Path.home()), "CSV Files (*.csv)")
+        if not path:
+            return
+        imported = export_service.import_tasks_from_csv(path, overwrite_duplicates=False)
+        for t in imported:
+            self.tasks[t.id] = t
+            self._add_task_item_to_cell(t)
+        QMessageBox.information(self, "Import", f"Imported {len(imported)} tasks from {path}")

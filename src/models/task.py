@@ -16,6 +16,7 @@ class Task:
     updated_at: Optional[str] = None
     status: str = "todo"
     tags: List[str] = field(default_factory=list)
+    order_in_cell: int = 0   # 👈 thêm field này
 
     def to_dict(self):
         return asdict(self)
