@@ -1,0 +1,5 @@
+pyside6
+sqlalchemy    # optional, sẽ dùng cho bước lưu vào SQLite
+pandas        # optional, sẽ dùng cho export CSV/Excel
+openpyxl      # optional, export excel
+python-dateutil
