@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QFrame,
     QStatusBar,
+    QCheckBox,
 )
 from PySide6.QtGui import QFont, QAction, QColor, QBrush, QPixmap, QPainter, QIcon
 
@@ -49,74 +50,72 @@ DUE_SOON_DAYS = 3  # tasks within this number of days will be highlighted as "du
 
 # Global stylesheet for a light, modern look with rounded corners and subtle spacing
 APP_STYLE = """
-/* Light mode, rounded cards, modern fonts */
-QWidget {
-    background: #f4f7fb;
-    color: #0f1722;
-    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
-    font-size: 11pt;
-}
-
-QMenuBar {
-    background: transparent;
-}
-
-QMenuBar::item {
-    padding: 6px 10px;
-}
-
-QFrame#card,
 QFrame#details,
 QListWidget {
-    background: #ffffff;
-    border-radius: 12px;
-    border: 1px solid rgba(15, 23, 34, 0.06);
+background: #ffffff;
+border-radius: 12px;
+border: 1px solid rgba(15, 23, 34, 0.06);
 }
+
 
 QFrame#card:hover {
-    border-color: rgba(15, 23, 34, 0.09);
+border-color: rgba(15, 23, 34, 0.09);
 }
+
 
 QListWidget {
-    padding: 8px;
+padding: 8px;
 }
+
 
 QListWidget::item {
-    padding: 8px;
-    margin: 6px 0;
-    border-radius: 8px;
+padding: 8px;
+margin: 6px 0;
+border-radius: 8px;
 }
+
+
+/* Ensure selected item background is readable and keeps dark text */
+QListWidget::item:selected {
+background: #e6f0ff; /* light blue */
+color: #0f1722; /* dark text */
+}
+
 
 QLabel.titleLabel {
-    font-family: 'Segoe UI Semibold', 'Segoe UI', Roboto, Arial;
-    font-size: 13pt;
+font-family: 'Segoe UI Semibold', 'Segoe UI', Roboto, Arial;
+font-size: 13pt;
 }
+
 
 QPushButton {
-    border: 1px solid #e6eef8;
-    padding: 6px 10px;
-    border-radius: 10px;
-    background: #ffffff;
+border: 1px solid #e6eef8;
+padding: 6px 10px;
+border-radius: 10px;
+background: #ffffff;
 }
 
+
 QPushButton#addBtn {
-    background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6);
-    color: white;
-    border: none;
+background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6);
+color: white;
+border: none;
 }
+
 
 QLineEdit,
 QComboBox,
 QDateEdit,
 QTextEdit {
-    background: #fbfdff;
-    border: 1px solid #e6eef8;
-    border-radius: 8px;
-    padding: 6px;
+background: #fbfdff;
+border: 1px solid #e6eef8;
+border-radius: 8px;
+padding: 6px;
 }
 
+
 QStatusBar {
-    background: transparent;
+background: transparent;
 }
 """
 
@@ -203,7 +202,8 @@ class AddEditTaskDialog(QDialog):
         self.task = task
         self.prefill = prefill or {}
         self.build_ui()
-        # If creating a new task, default Due date to today's date (instead of 2000-01-01)
+
+        # If editing existing task, load values
         if task:
             self.load_task(task)
         else:
@@ -214,33 +214,43 @@ class AddEditTaskDialog(QDialog):
                 self.importance_cb.setCurrentText(imp)
             if urg:
                 self.urgency_cb.setCurrentText(urg)
-            # default due date = today (user requested)
+
+            # If prefill contains a due_date, honor it; otherwise default to NO DUE DATE
             try:
-                # if prefilling a specific due_date was requested, honor it
                 if self.prefill.get("due_date"):
                     qd = QDate.fromString(self.prefill.get("due_date"), "yyyy-MM-dd")
                     if qd.isValid():
                         self.due_date.setDate(qd)
+                        self.no_due_cb.setChecked(False)
+                        self.due_date.setEnabled(True)
                     else:
-                        self.due_date.setDate(QDate.currentDate())
+                        self.no_due_cb.setChecked(True)
+                        self.due_date.setEnabled(False)
                 else:
-                    self.due_date.setDate(QDate.currentDate())
+                    # default: no due date for new tasks (user wanted empty by default)
+                    self.no_due_cb.setChecked(True)
+                    self.due_date.setEnabled(False)
             except Exception:
-                self.due_date.setDate(QDate.currentDate())
+                self.no_due_cb.setChecked(True)
+                self.due_date.setEnabled(False)
 
     def build_ui(self):
         self.form = QFormLayout(self)
         self.title_edit = QLineEdit()
         self.desc_edit = QTextEdit()
         self.importance_cb = QComboBox()
-        self.importance_cb.addItems(["High", "Medium", "Low"])
+        self.importance_cb.addItems(["High", "Medium", "Low"])  # changed to capitalized
         self.urgency_cb = QComboBox()
-        self.urgency_cb.addItems(["High", "Medium", "Ligh"])
+        self.urgency_cb.addItems(["High", "Medium", "Low"])  # typo fixed (was 'Ligh')
         self.due_date = QDateEdit()
         self.due_date.setCalendarPopup(True)
         self.due_date.setDisplayFormat("yyyy-MM-dd")
-        # allow an empty special text, but default will be set to today for new tasks
+        # allow an empty special text
         self.due_date.setSpecialValueText("")
+
+        # No-due-date checkbox (new): when checked -> task has no due date
+        self.no_due_cb = QCheckBox("No due date")
+        self.no_due_cb.toggled.connect(self._on_no_due_toggled)
 
         # new: tags field (comma-separated)
         self.tags_edit = QLineEdit()
@@ -251,12 +261,17 @@ class AddEditTaskDialog(QDialog):
         self.form.addRow("Importance", self.importance_cb)
         self.form.addRow("Urgency", self.urgency_cb)
         self.form.addRow("Due date", self.due_date)
+        self.form.addRow("", self.no_due_cb)
         self.form.addRow("Tags", self.tags_edit)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         self.form.addRow(self.buttons)
+
+    def _on_no_due_toggled(self, checked: bool):
+        # when checked -> disable the date widget and later get_task_data will return None
+        self.due_date.setEnabled(not checked)
 
     def load_task(self, task: Task):
         self.title_edit.setText(task.title)
@@ -268,8 +283,15 @@ class AddEditTaskDialog(QDialog):
                 qd = QDate.fromString(task.due_date, "yyyy-MM-dd")
                 if qd.isValid():
                     self.due_date.setDate(qd)
+                    self.no_due_cb.setChecked(False)
+                    self.due_date.setEnabled(True)
             except Exception:
                 pass
+        else:
+            # no due date on task
+            self.no_due_cb.setChecked(True)
+            self.due_date.setEnabled(False)
+
         # load tags if available
         tags_val = None
         if hasattr(task, "tags") and task.tags:
@@ -288,14 +310,14 @@ class AddEditTaskDialog(QDialog):
         desc = self.desc_edit.toPlainText().strip()
         imp = self.importance_cb.currentText()
         urg = self.urgency_cb.currentText()
+
+        # Due date handling: if 'No due date' checked -> store None
         d = None
-        # Because we default the field to today for new tasks, this will return today's date
-        if self.due_date.date().isValid() and self.due_date.date().toString(
-            "yyyy-MM-dd"
-        ):
-            d = self.due_date.date().toString("yyyy-MM-dd")
+        if not self.no_due_cb.isChecked():
+            if self.due_date.date().isValid() and self.due_date.date().toString("yyyy-MM-dd"):
+                d = self.due_date.date().toString("yyyy-MM-dd")
+
         tags_raw = self.tags_edit.text().strip()
-        # normalize tags as comma-separated string (consumer code can split to list)
         tags = (
             ",".join([t.strip() for t in tags_raw.split(",") if t.strip()])
             if tags_raw
@@ -367,8 +389,9 @@ class MainWindow(QMainWindow):
         add_btn.setShortcut("Ctrl+N")
 
         # filters
+        # normalize filter casing to match dialog options
         self.importance_filter = QComboBox()
-        self.importance_filter.addItems(["All", "high", "medium", "low"])
+        self.importance_filter.addItems(["All", "High", "Medium", "Low"])  # capitalized
         self.importance_filter.currentTextChanged.connect(self.apply_filters)
         self.tags_filter = QLineEdit()
         self.tags_filter.setPlaceholderText("Filter tags (comma-separated)")
@@ -389,6 +412,11 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # NEW: checkbox to enable/disable due-date range filtering
+        self.date_filter_checkbox = QCheckBox("Filter by due date")
+        self.date_filter_checkbox.setChecked(False)
+        self.date_filter_checkbox.toggled.connect(self.apply_filters)
+
         clear_filters_btn = QPushButton("Clear filters")
         clear_filters_btn.clicked.connect(self.clear_filters)
 
@@ -407,6 +435,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.from_date_filter)
         toolbar.addWidget(QLabel("To"))
         toolbar.addWidget(self.to_date_filter)
+        toolbar.addWidget(self.date_filter_checkbox)  # <-- added
         toolbar.addWidget(clear_filters_btn)
         toolbar.addWidget(QLabel("Search:"))
         toolbar.addWidget(self.search)
@@ -522,7 +551,8 @@ class MainWindow(QMainWindow):
 
     def _priority_icon(self, importance: str) -> QIcon:
         # create a small circular pixmap filled with priority color
-        color = QColor(PRIORITY_COLORS.get(importance, "#cccccc"))
+        key = (importance or "").lower()
+        color = QColor(PRIORITY_COLORS.get(key, "#cccccc"))
         size = 14
         pix = QPixmap(size, size)
         pix.fill(Qt.transparent)
@@ -543,15 +573,33 @@ class MainWindow(QMainWindow):
         title = d.get("title", "<no title>")
         item.setText(title)
         item.setData(Qt.UserRole, raw)
-        # tooltip
-        tooltip = (
-            f"Due: {d.get('due_date') or '—'}\nUpdated: {d.get('updated_at') or '—'}"
-        )
+
+        # keep item text dark even when selected
+        item.setForeground(QBrush(QColor("#0f1722")))
+
+        # format due date / updated_at as dd/mm/yyyy in tooltip
+        due_fmt = "—"
+        if d.get("due_date"):
+            try:
+                dd = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
+                due_fmt = dd.strftime("%d/%m/%Y")
+            except Exception:
+                due_fmt = d.get("due_date")
+        updated_fmt = d.get("updated_at") or "—"
+        if d.get("updated_at"):
+            try:
+                up = datetime.fromisoformat(d.get("updated_at"))
+                updated_fmt = up.strftime("%d/%m/%Y")
+            except Exception:
+                updated_fmt = d.get("updated_at")
+
+        tooltip = f"Due: {due_fmt}\nUpdated: {updated_fmt}"
         if d.get("description"):
             tooltip += f"\n{d.get('description')[:180]}"
         if d.get("tags"):
             tooltip += f"\nTags: {d.get('tags')}"
         item.setToolTip(tooltip)
+
         # icon
         item.setIcon(self._priority_icon(d.get("importance")))
         # visual hint for overdue / due soon
@@ -806,22 +854,43 @@ class MainWindow(QMainWindow):
     def _show_task_in_details(self, t: Task):
         self.selected_task_id = t.id
         self.title_label.setText(t.title)
-        md = f"Importance: {t.importance}  •  Urgency: {t.urgency}"
+        # Build rich HTML meta string with bold labels and dd/mm/yyyy formatting
+        parts = []
+        parts.append(f"<b>Importance:</b> {t.importance}")
+        parts.append(f"<b>Urgency:</b> {t.urgency}")
+
         if t.due_date:
-            md += f"\nDue date: {t.due_date}"
             try:
                 d = datetime.strptime(t.due_date, "%Y-%m-%d").date()
+                due_str = d.strftime("%d/%m/%Y")
+            except Exception:
+                due_str = t.due_date
+            # overdue / due soon tags
+            try:
                 today = datetime.utcnow().date()
                 if d < today:
-                    md += "  (OVERDUE)"
+                    due_str += "  (<b>OVERDUE</b>)"
                 elif (d - today).days <= DUE_SOON_DAYS:
-                    md += "  (Due soon)"
+                    due_str += "  (<b>Due soon</b>)"
             except Exception:
                 pass
+            parts.append(f"<b>Due date:</b> {due_str}")
+        else:
+            parts.append(f"<b>Due date:</b> —")
+
         if hasattr(t, "tags") and t.tags:
-            md += f"\nTags: {t.tags}"
-        md += f"\nUpdated: {t.updated_at or '—'}"
-        self.meta_label.setText(md)
+            parts.append(f"<b>Tags:</b> {t.tags}")
+
+        updated_str = t.updated_at or "—"
+        if t.updated_at:
+            try:
+                up = datetime.fromisoformat(t.updated_at)
+                updated_str = up.strftime("%d/%m/%Y")
+            except Exception:
+                updated_str = t.updated_at
+        parts.append(f"<b>Updated:</b> {updated_str}")
+
+        self.meta_label.setText("<br/>".join(parts))
         self.desc_view.setPlainText(t.description or "")
 
     def _clear_details(self):
@@ -937,13 +1006,20 @@ class MainWindow(QMainWindow):
         self.apply_filters()
 
     def update_status_bar(self):
-        total = len(self.tasks)
-        by_importance = {k: 0 for k in PRIORITY_ROWS}
+        # Normalize importance keys so counts sum correctly to total
+        by_importance = {k.lower(): 0 for k in PRIORITY_ROWS}
         for t in self.tasks.values():
-            by_importance[t.importance] = by_importance.get(t.importance, 0) + 1
-        legend = "  ".join(
-            [f"{k.capitalize()}: {by_importance[k]}" for k in PRIORITY_ROWS]
-        )
+            key = (t.importance or "").lower()
+            if key in by_importance:
+                by_importance[key] += 1
+            else:
+                # include unexpected keys too (not shown in legend)
+                by_importance[key] = by_importance.get(key, 0) + 1
+        # Total shown as sum of the three canonical buckets (High/Medium/Low)
+        total = sum(by_importance.get(k.lower(), 0) for k in PRIORITY_ROWS)
+        legend = "  ".join([
+            f"{k.capitalize()}: {by_importance.get(k.lower(), 0)}" for k in PRIORITY_ROWS
+        ])
         self.status.showMessage(f"Total: {total}  —  {legend}")
 
     def _sort_cell_by_due_date(self, lw: CellListWidget):
@@ -990,16 +1066,20 @@ class MainWindow(QMainWindow):
         q = self.search.text().strip().lower()
         importance = self.importance_filter.currentText()
         tags_q = self._parse_tags(self.tags_filter.text())
+
+        # only consider date filters if checkbox enabled
+        date_filter_enabled = getattr(self, "date_filter_checkbox", None) and self.date_filter_checkbox.isChecked()
+
         from_ok = self.from_date_filter.date().isValid()
         to_ok = self.to_date_filter.date().isValid()
         from_date = None
         to_date = None
         try:
-            if from_ok:
+            if date_filter_enabled and from_ok:
                 from_date = datetime.strptime(
                     self.from_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d"
                 ).date()
-            if to_ok:
+            if date_filter_enabled and to_ok:
                 to_date = datetime.strptime(
                     self.to_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d"
                 ).date()
@@ -1028,26 +1108,29 @@ class MainWindow(QMainWindow):
                 # tags (any match)
                 if tags_q and not (tags_q & item_tags):
                     hidden = True
-                # due date range
-                if (from_date or to_date) and d.get("due_date"):
-                    try:
-                        dd = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
-                        if from_date and dd < from_date:
-                            hidden = True
-                        if to_date and dd > to_date:
-                            hidden = True
-                    except Exception:
-                        pass
-                elif (from_date or to_date) and not d.get("due_date"):
-                    # if user filters by date range but task has no due date -> hide
-                    hidden = True
+                # due date range (only if date filter enabled)
+                if date_filter_enabled:
+                    if (from_date or to_date) and d.get("due_date"):
+                        try:
+                            dd = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
+                            if from_date and dd < from_date:
+                                hidden = True
+                            if to_date and dd > to_date:
+                                hidden = True
+                        except Exception:
+                            pass
+                    elif (from_date or to_date) and not d.get("due_date"):
+                        # if user filters by date range but task has no due date -> hide
+                        hidden = True
 
                 it.setHidden(hidden)
+
 
     def clear_filters(self):
         self.importance_filter.setCurrentIndex(0)
         self.tags_filter.setText("")
         self.from_date_filter.clear()
         self.to_date_filter.setDate(QDate.currentDate())
+        self.date_filter_checkbox.setChecked(False)  # reset date filter checkbox
         self.search.setText("")
         self.apply_filters()
