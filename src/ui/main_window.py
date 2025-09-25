@@ -5,10 +5,30 @@ from functools import partial
 
 from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QGridLayout, QLineEdit, QDialog,
-    QFormLayout, QComboBox, QTextEdit, QDateEdit, QDialogButtonBox, QMessageBox,
-    QFileDialog, QMenuBar, QMenu, QAbstractItemView, QSplitter, QFrame, QStatusBar
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QListWidget,
+    QListWidgetItem,
+    QGridLayout,
+    QLineEdit,
+    QDialog,
+    QFormLayout,
+    QComboBox,
+    QTextEdit,
+    QDateEdit,
+    QDialogButtonBox,
+    QMessageBox,
+    QFileDialog,
+    QMenuBar,
+    QMenu,
+    QAbstractItemView,
+    QSplitter,
+    QFrame,
+    QStatusBar,
 )
 from PySide6.QtGui import QFont, QAction, QColor, QBrush, QPixmap, QPainter, QIcon
 
@@ -16,16 +36,89 @@ from models.task import Task
 from db import db
 from services import export as export_service
 
-PRIORITY_ROWS = ["high", "medium", "low"]    # hàng: top -> bottom
-URGENCY_COLS = ["low", "medium", "high"]     # cột: left -> right
+PRIORITY_ROWS = ["High", "Medium", "Low"]  # hàng: top -> bottom
+URGENCY_COLS = ["High", "Medium", "Low"]  # cột: left -> right
 
 # UI / UX constants
 PRIORITY_COLORS = {
-    "high": "#ff6b6b",    # red
+    "high": "#ff6b6b",  # red
     "medium": "#ffd166",  # amber
-    "low": "#8ecae6"      # blue
+    "low": "#8ecae6",  # blue
 }
 DUE_SOON_DAYS = 3  # tasks within this number of days will be highlighted as "due soon"
+
+# Global stylesheet for a light, modern look with rounded corners and subtle spacing
+APP_STYLE = """
+/* Light mode, rounded cards, modern fonts */
+QWidget {
+    background: #f4f7fb;
+    color: #0f1722;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    font-size: 11pt;
+}
+
+QMenuBar {
+    background: transparent;
+}
+
+QMenuBar::item {
+    padding: 6px 10px;
+}
+
+QFrame#card,
+QFrame#details,
+QListWidget {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid rgba(15, 23, 34, 0.06);
+}
+
+QFrame#card:hover {
+    border-color: rgba(15, 23, 34, 0.09);
+}
+
+QListWidget {
+    padding: 8px;
+}
+
+QListWidget::item {
+    padding: 8px;
+    margin: 6px 0;
+    border-radius: 8px;
+}
+
+QLabel.titleLabel {
+    font-family: 'Segoe UI Semibold', 'Segoe UI', Roboto, Arial;
+    font-size: 13pt;
+}
+
+QPushButton {
+    border: 1px solid #e6eef8;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: #ffffff;
+}
+
+QPushButton#addBtn {
+    background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6);
+    color: white;
+    border: none;
+}
+
+QLineEdit,
+QComboBox,
+QDateEdit,
+QTextEdit {
+    background: #fbfdff;
+    border: 1px solid #e6eef8;
+    border-radius: 8px;
+    padding: 6px;
+}
+
+QStatusBar {
+    background: transparent;
+}
+"""
 
 
 class CellListWidget(QListWidget):
@@ -38,7 +131,14 @@ class CellListWidget(QListWidget):
 
     item_action_requested = Signal(str, QListWidgetItem)
 
-    def __init__(self, importance: str, urgency: str, on_cell_changed=None, on_item_action=None, parent=None):
+    def __init__(
+        self,
+        importance: str,
+        urgency: str,
+        on_cell_changed=None,
+        on_item_action=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.importance = importance
         self.urgency = urgency
@@ -97,12 +197,13 @@ class CellListWidget(QListWidget):
 
 
 class AddEditTaskDialog(QDialog):
-    def __init__(self, parent=None, task: Task=None, prefill=None):
+    def __init__(self, parent=None, task: Task = None, prefill=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Task" if task else "Add Task")
         self.task = task
         self.prefill = prefill or {}
         self.build_ui()
+        # If creating a new task, default Due date to today's date (instead of 2000-01-01)
         if task:
             self.load_task(task)
         else:
@@ -113,19 +214,33 @@ class AddEditTaskDialog(QDialog):
                 self.importance_cb.setCurrentText(imp)
             if urg:
                 self.urgency_cb.setCurrentText(urg)
+            # default due date = today (user requested)
+            try:
+                # if prefilling a specific due_date was requested, honor it
+                if self.prefill.get("due_date"):
+                    qd = QDate.fromString(self.prefill.get("due_date"), "yyyy-MM-dd")
+                    if qd.isValid():
+                        self.due_date.setDate(qd)
+                    else:
+                        self.due_date.setDate(QDate.currentDate())
+                else:
+                    self.due_date.setDate(QDate.currentDate())
+            except Exception:
+                self.due_date.setDate(QDate.currentDate())
 
     def build_ui(self):
         self.form = QFormLayout(self)
         self.title_edit = QLineEdit()
         self.desc_edit = QTextEdit()
         self.importance_cb = QComboBox()
-        self.importance_cb.addItems(["low", "medium", "high"])
+        self.importance_cb.addItems(["High", "Medium", "Low"])
         self.urgency_cb = QComboBox()
-        self.urgency_cb.addItems(["low", "medium", "high"])
+        self.urgency_cb.addItems(["High", "Medium", "Ligh"])
         self.due_date = QDateEdit()
         self.due_date.setCalendarPopup(True)
         self.due_date.setDisplayFormat("yyyy-MM-dd")
-        self.due_date.setSpecialValueText("")  # allow empty
+        # allow an empty special text, but default will be set to today for new tasks
+        self.due_date.setSpecialValueText("")
 
         # new: tags field (comma-separated)
         self.tags_edit = QLineEdit()
@@ -174,11 +289,18 @@ class AddEditTaskDialog(QDialog):
         imp = self.importance_cb.currentText()
         urg = self.urgency_cb.currentText()
         d = None
-        if self.due_date.date().isValid() and self.due_date.date().toString("yyyy-MM-dd"):
+        # Because we default the field to today for new tasks, this will return today's date
+        if self.due_date.date().isValid() and self.due_date.date().toString(
+            "yyyy-MM-dd"
+        ):
             d = self.due_date.date().toString("yyyy-MM-dd")
         tags_raw = self.tags_edit.text().strip()
         # normalize tags as comma-separated string (consumer code can split to list)
-        tags = ",".join([t.strip() for t in tags_raw.split(",") if t.strip()]) if tags_raw else ""
+        tags = (
+            ",".join([t.strip() for t in tags_raw.split(",") if t.strip()])
+            if tags_raw
+            else ""
+        )
         return {
             "title": title,
             "description": desc,
@@ -186,7 +308,7 @@ class AddEditTaskDialog(QDialog):
             "urgency": urg,
             "due_date": d,
             "tags": tags,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": datetime.utcnow().isoformat(),
         }
 
 
@@ -194,6 +316,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Eisenhower 3x3 - Polished UI")
+        # set a pleasant default font for the app
+        self.setFont(QFont("Segoe UI", 10))
+        # apply stylesheet for modern rounded light theme
+        self.setStyleSheet(APP_STYLE)
+
         self.tasks = {}  # id -> Task (in-memory)
         db.init_db_if_needed()
         self._setup_ui()
@@ -235,6 +362,7 @@ class MainWindow(QMainWindow):
         # toolbar
         toolbar = QHBoxLayout()
         add_btn = QPushButton("+ Add Task")
+        add_btn.setObjectName("addBtn")
         add_btn.clicked.connect(self.on_add_task)
         add_btn.setShortcut("Ctrl+N")
 
@@ -255,6 +383,12 @@ class MainWindow(QMainWindow):
         self.to_date_filter.setDisplayFormat("yyyy-MM-dd")
         self.to_date_filter.setSpecialValueText("")
         self.to_date_filter.dateChanged.connect(self.apply_filters)
+        # User requested: default To date = today
+        try:
+            self.to_date_filter.setDate(QDate.currentDate())
+        except Exception:
+            pass
+
         clear_filters_btn = QPushButton("Clear filters")
         clear_filters_btn.clicked.connect(self.clear_filters)
 
@@ -290,20 +424,26 @@ class MainWindow(QMainWindow):
         for row_idx, imp in enumerate(PRIORITY_ROWS):
             for col_idx, urg in enumerate(URGENCY_COLS):
                 cell_container = QFrame()
-                cell_container.setFrameShape(QFrame.StyledPanel)
+                # mark as a small card
+                cell_container.setObjectName("card")
                 cell_layout = QVBoxLayout(cell_container)
 
                 header = QLabel(f"{imp.capitalize()} / {urg.capitalize()}")
-                header.setFont(QFont("", 9, QFont.Bold))
+                header.setFont(QFont("Segoe UI Semibold", 9))
                 header.setAlignment(Qt.AlignCenter)
                 header.setFixedHeight(20)
 
-                lw = CellListWidget(importance=imp, urgency=urg,
-                                     on_cell_changed=self.on_cell_changed,
-                                     on_item_action=self.on_cell_item_action)
+                lw = CellListWidget(
+                    importance=imp,
+                    urgency=urg,
+                    on_cell_changed=self.on_cell_changed,
+                    on_item_action=self.on_cell_item_action,
+                )
                 lw.itemDoubleClicked.connect(self.on_item_double_clicked)
                 # connect selection changed to global handler
-                lw.itemSelectionChanged.connect(partial(self.on_cell_selection_changed, lw))
+                lw.itemSelectionChanged.connect(
+                    partial(self.on_cell_selection_changed, lw)
+                )
 
                 cell_layout.addWidget(header)
                 cell_layout.addWidget(lw)
@@ -314,13 +454,15 @@ class MainWindow(QMainWindow):
 
         # right panel: details + actions
         details = QFrame()
+        details.setObjectName("details")
         details.setFrameShape(QFrame.StyledPanel)
         details_layout = QVBoxLayout(details)
         details_layout.setContentsMargins(8, 8, 8, 8)
 
         self.title_label = QLabel("Select a task to see details")
         self.title_label.setWordWrap(True)
-        self.title_label.setFont(QFont("", 12, QFont.Bold))
+        self.title_label.setFont(QFont("Segoe UI Semibold", 12))
+        self.title_label.setProperty("class", "titleLabel")
 
         self.meta_label = QLabel("")
         self.meta_label.setWordWrap(True)
@@ -362,7 +504,9 @@ class MainWindow(QMainWindow):
         self.addAction(delete_shortcut)
 
         # small hints
-        self.status.showMessage("Tip: Right-click a task for Edit/Delete. Use filters above to narrow tasks.")
+        self.status.showMessage(
+            "Tip: Right-click a task for Edit/Delete. Use filters above to narrow tasks."
+        )
 
         # internal state
         self.selected_task_id = None
@@ -400,7 +544,9 @@ class MainWindow(QMainWindow):
         item.setText(title)
         item.setData(Qt.UserRole, raw)
         # tooltip
-        tooltip = f"Due: {d.get('due_date') or '—'}\nUpdated: {d.get('updated_at') or '—'}"
+        tooltip = (
+            f"Due: {d.get('due_date') or '—'}\nUpdated: {d.get('updated_at') or '—'}"
+        )
         if d.get("description"):
             tooltip += f"\n{d.get('description')[:180]}"
         if d.get("tags"):
@@ -432,15 +578,21 @@ class MainWindow(QMainWindow):
         cell = self.cells.get((task.importance, task.urgency))
         if not cell:
             return
-        raw = json.dumps(task.to_dict()) if hasattr(task, 'to_dict') else json.dumps({
-            'id': getattr(task, 'id', None),
-            'title': getattr(task, 'title', ''),
-            'description': getattr(task, 'description', ''),
-            'importance': getattr(task, 'importance', ''),
-            'urgency': getattr(task, 'urgency', ''),
-            'due_date': getattr(task, 'due_date', ''),
-            'updated_at': getattr(task, 'updated_at', '')
-        })
+        raw = (
+            json.dumps(task.to_dict())
+            if hasattr(task, "to_dict")
+            else json.dumps(
+                {
+                    "id": getattr(task, "id", None),
+                    "title": getattr(task, "title", ""),
+                    "description": getattr(task, "description", ""),
+                    "importance": getattr(task, "importance", ""),
+                    "urgency": getattr(task, "urgency", ""),
+                    "due_date": getattr(task, "due_date", ""),
+                    "updated_at": getattr(task, "updated_at", ""),
+                }
+            )
+        )
         item = QListWidgetItem()
         self._decorate_item_from_raw(item, raw)
         cell.addItem(item)
@@ -456,11 +608,11 @@ class MainWindow(QMainWindow):
                 description=data["description"],
                 importance=data["importance"],
                 urgency=data["urgency"],
-                due_date=data["due_date"]
+                due_date=data["due_date"],
             )
             # attach tags attribute to Task object (consumer may convert to list in Task.to_dict)
             try:
-                t.tags = data.get('tags', "")
+                t.tags = data.get("tags", "")
             except Exception:
                 pass
             t.updated_at = data["updated_at"]
@@ -494,10 +646,10 @@ class MainWindow(QMainWindow):
                     description=data["description"],
                     importance=data["importance"],
                     urgency=data["urgency"],
-                    due_date=data["due_date"]
+                    due_date=data["due_date"],
                 )
                 try:
-                    t.tags = data.get('tags', "")
+                    t.tags = data.get("tags", "")
                 except Exception:
                     pass
                 t.updated_at = data["updated_at"]
@@ -532,7 +684,7 @@ class MainWindow(QMainWindow):
                 t.urgency = newdata["urgency"]
                 t.due_date = newdata["due_date"]
                 try:
-                    t.tags = newdata.get('tags', "")
+                    t.tags = newdata.get("tags", "")
                 except Exception:
                     pass
                 t.updated_at = newdata["updated_at"]
@@ -575,7 +727,7 @@ class MainWindow(QMainWindow):
             t.urgency = newdata["urgency"]
             t.due_date = newdata["due_date"]
             try:
-                t.tags = newdata.get('tags', "")
+                t.tags = newdata.get("tags", "")
             except Exception:
                 pass
             t.updated_at = newdata["updated_at"]
@@ -634,7 +786,9 @@ class MainWindow(QMainWindow):
         sel = lw.selectedItems()
         if not sel:
             # clear selection only if nothing selected anywhere
-            any_selected = any((len(c.selectedItems()) > 0 for c in self.cells.values()))
+            any_selected = any(
+                (len(c.selectedItems()) > 0 for c in self.cells.values())
+            )
             if not any_selected:
                 self._clear_details()
             return
@@ -664,7 +818,7 @@ class MainWindow(QMainWindow):
                     md += "  (Due soon)"
             except Exception:
                 pass
-        if hasattr(t, 'tags') and t.tags:
+        if hasattr(t, "tags") and t.tags:
             md += f"\nTags: {t.tags}"
         md += f"\nUpdated: {t.updated_at or '—'}"
         self.meta_label.setText(md)
@@ -694,7 +848,7 @@ class MainWindow(QMainWindow):
             t.urgency = newdata["urgency"]
             t.due_date = newdata["due_date"]
             try:
-                t.tags = newdata.get('tags', "")
+                t.tags = newdata.get("tags", "")
             except Exception:
                 pass
             t.updated_at = newdata["updated_at"]
@@ -736,30 +890,47 @@ class MainWindow(QMainWindow):
 
     # Export/Import handlers
     def on_export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export CSV", str(Path.home() / "tasks.csv"), "CSV Files (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export CSV", str(Path.home() / "tasks.csv"), "CSV Files (*.csv)"
+        )
         if not path:
             return
         tasks = list(self.tasks.values())
         export_service.export_tasks_to_csv(tasks, path)
-        QMessageBox.information(self, "Export", f"Exported {len(tasks)} tasks to {path}")
+        QMessageBox.information(
+            self, "Export", f"Exported {len(tasks)} tasks to {path}"
+        )
 
     def on_export_xlsx(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export Excel", str(Path.home() / "tasks.xlsx"), "Excel Files (*.xlsx)")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Excel",
+            str(Path.home() / "tasks.xlsx"),
+            "Excel Files (*.xlsx)",
+        )
         if not path:
             return
         tasks = list(self.tasks.values())
         export_service.export_tasks_to_excel(tasks, path)
-        QMessageBox.information(self, "Export", f"Exported {len(tasks)} tasks to {path}")
+        QMessageBox.information(
+            self, "Export", f"Exported {len(tasks)} tasks to {path}"
+        )
 
     def on_import_csv(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Import CSV", str(Path.home()), "CSV Files (*.csv)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import CSV", str(Path.home()), "CSV Files (*.csv)"
+        )
         if not path:
             return
-        imported = export_service.import_tasks_from_csv(path, overwrite_duplicates=False)
+        imported = export_service.import_tasks_from_csv(
+            path, overwrite_duplicates=False
+        )
         for t in imported:
             self.tasks[t.id] = t
             self._add_task_item_to_cell(t)
-        QMessageBox.information(self, "Import", f"Imported {len(imported)} tasks from {path}")
+        QMessageBox.information(
+            self, "Import", f"Imported {len(imported)} tasks from {path}"
+        )
         for lw in self.cells.values():
             self._sort_cell_by_due_date(lw)
         self.update_status_bar()
@@ -770,7 +941,9 @@ class MainWindow(QMainWindow):
         by_importance = {k: 0 for k in PRIORITY_ROWS}
         for t in self.tasks.values():
             by_importance[t.importance] = by_importance.get(t.importance, 0) + 1
-        legend = "  ".join([f"{k.capitalize()}: {by_importance[k]}" for k in PRIORITY_ROWS])
+        legend = "  ".join(
+            [f"{k.capitalize()}: {by_importance[k]}" for k in PRIORITY_ROWS]
+        )
         self.status.showMessage(f"Total: {total}  —  {legend}")
 
     def _sort_cell_by_due_date(self, lw: CellListWidget):
@@ -799,7 +972,11 @@ class MainWindow(QMainWindow):
             lw.addItem(it)
 
     def on_about(self):
-        QMessageBox.information(self, "About", "Eisenhower 3x3 - Polished UI\nImprovements: detail panel, context menu, overdue highlight, status bar, keyboard shortcuts.\n\nNew in this version: filters (importance/tags/due date range), priority color icons, stronger 'due soon' highlighting, and tags support in the task dialog.")
+        QMessageBox.information(
+            self,
+            "About",
+            "Eisenhower 3x3 - Polished UI\nImprovements: detail panel, context menu, overdue highlight, status bar, keyboard shortcuts.\n\nNew in this version: filters (importance/tags/due date range), priority color icons, stronger 'due soon' highlighting, and tags support in the task dialog.",
+        )
 
     # -- Filtering utilities --
     def _parse_tags(self, tags_field) -> set:
@@ -819,9 +996,13 @@ class MainWindow(QMainWindow):
         to_date = None
         try:
             if from_ok:
-                from_date = datetime.strptime(self.from_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d").date()
+                from_date = datetime.strptime(
+                    self.from_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d"
+                ).date()
             if to_ok:
-                to_date = datetime.strptime(self.to_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d").date()
+                to_date = datetime.strptime(
+                    self.to_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d"
+                ).date()
         except Exception:
             from_date = to_date = None
 
@@ -867,6 +1048,6 @@ class MainWindow(QMainWindow):
         self.importance_filter.setCurrentIndex(0)
         self.tags_filter.setText("")
         self.from_date_filter.clear()
-        self.to_date_filter.clear()
-        self.search.setText("")git 
+        self.to_date_filter.setDate(QDate.currentDate())
+        self.search.setText("")
         self.apply_filters()
