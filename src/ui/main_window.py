@@ -446,6 +446,7 @@ class MainWindow(QMainWindow):
 
         # matrix grid
         grid_widget = QWidget()
+        grid_widget.setMinimumWidth(950)
         grid = QGridLayout(grid_widget)
         grid.setSpacing(10)
 
@@ -485,6 +486,7 @@ class MainWindow(QMainWindow):
         details = QFrame()
         details.setObjectName("details")
         details.setFrameShape(QFrame.StyledPanel)
+        details.setMinimumWidth(250)
         details_layout = QVBoxLayout(details)
         details_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -1063,6 +1065,9 @@ class MainWindow(QMainWindow):
         return set([t.strip().lower() for t in str(tags_field).split(",") if t.strip()])
 
     def apply_filters(self):
+        # Fix: avoid AttributeError if called before self.search is created
+        if not hasattr(self, "search"):
+            return
         q = self.search.text().strip().lower()
         importance = self.importance_filter.currentText()
         tags_q = self._parse_tags(self.tags_filter.text())
