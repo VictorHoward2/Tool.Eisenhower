@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QStatusBar,
     QCheckBox,
+    QSpinBox,
 )
 from PySide6.QtGui import QFont, QAction, QColor, QBrush, QPixmap, QPainter, QIcon
 
@@ -429,6 +430,13 @@ class MainWindow(QMainWindow):
         about_act.triggered.connect(self.on_about)
         help_menu.addAction(about_act)
         menubar.addMenu(help_menu)
+
+        # Settings menu
+        settings_menu = QMenu("&Settings", self)
+        edit_settings_act = QAction("Preferences...", self)
+        edit_settings_act.triggered.connect(self.open_settings_dialog)
+        settings_menu.addAction(edit_settings_act)
+        menubar.addMenu(settings_menu)
 
         self.setMenuBar(menubar)
 
@@ -1122,6 +1130,68 @@ class MainWindow(QMainWindow):
             "Eisenhower 3x3 - Polished UI\nImprovements: detail panel, context menu, overdue highlight, status bar, keyboard shortcuts.\n\nNew in this version: filters (importance/tags/due date range), priority color icons, stronger 'due soon' highlighting, and tags support in the task dialog.",
         )
 
+    def open_settings_dialog(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Preferences")
+        form = QFormLayout(dlg)
+
+        due_soon_spin = QSpinBox(dlg)
+        due_soon_spin.setRange(0, 365)
+        due_soon_spin.setValue(DUE_SOON_DAYS)
+        due_soon_spin.setSuffix(" day(s)")
+
+        interval_spin = QSpinBox(dlg)
+        interval_spin.setRange(1000, 3600_000)
+        interval_spin.setSingleStep(1000)
+        interval_spin.setValue(NOTIFICATION_CHECK_INTERVAL)
+        interval_spin.setSuffix(" ms")
+
+        form.addRow("Due soon threshold:", due_soon_spin)
+        form.addRow("Notification interval:", interval_spin)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+        form.addRow(buttons)
+
+        def on_accept():
+            # apply settings
+            new_due_soon = due_soon_spin.value()
+            new_interval = interval_spin.value()
+            self.apply_settings(new_due_soon, new_interval)
+            dlg.accept()
+
+        buttons.accepted.connect(on_accept)
+        buttons.rejected.connect(dlg.reject)
+
+        dlg.exec()
+
+    def apply_settings(self, new_due_soon_days: int, new_interval_ms: int):
+        global DUE_SOON_DAYS, NOTIFICATION_CHECK_INTERVAL
+        DUE_SOON_DAYS = new_due_soon_days
+        NOTIFICATION_CHECK_INTERVAL = new_interval_ms
+        # restart timer with new interval if notifications active
+        if not self.notifications_paused:
+            try:
+                self.notification_timer.stop()
+                self.notification_timer.start(NOTIFICATION_CHECK_INTERVAL)
+            except Exception:
+                pass
+        # refresh visual highlighting and filtering
+        for lw in self.cells.values():
+            # re-decorate items to update due-soon highlight
+            items = []
+            for i in range(lw.count()):
+                it = lw.item(i)
+                items.append(it.data(Qt.UserRole))
+            lw.clear()
+            for raw in items:
+                it = QListWidgetItem()
+                self._decorate_item_from_raw(it, raw)
+                lw.addItem(it)
+            # keep sorting by due date
+            self._sort_cell_by_due_date(lw)
+        # re-apply filters to respect any date-based views
+        self.apply_filters()
+
     # -- Filtering utilities --
     def _parse_tags(self, tags_field) -> set:
         if not tags_field:
@@ -1296,12 +1366,12 @@ class MainWindow(QMainWindow):
         self.disable_notifications_act.setEnabled(False)
         
         # Show confirmation message
-        QMessageBox.information(
-            self,
-            "Notifications Paused",
-            "Automatic due task notifications have been paused.\n\n"
-            "You can re-enable them anytime from the View menu → 'Enable Notifications'."
-        )
+        # QMessageBox.information(
+        #     self,
+        #     "Notifications Paused",
+        #     "Automatic due task notifications have been paused.\n\n"
+        #     "You can re-enable them anytime from the View menu → 'Enable Notifications'."
+        # )
 
     def resume_notifications(self):
         """Resume automatic notifications"""
@@ -1317,5 +1387,5 @@ class MainWindow(QMainWindow):
             self,
             "Notifications Enabled",
             "Automatic due task notifications have been re-enabled.\n\n"
-            "The app will check for due tasks every 10 seconds."
+            f"The app will check for due tasks every {NOTIFICATION_CHECK_INTERVAL/1000} seconds."
         )
