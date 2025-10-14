@@ -897,6 +897,8 @@ class MainWindow(QMainWindow):
         self._sort_cell_by_due_date(lw)
         self.update_status_bar()
         self.apply_filters()
+        self._setup_ui()
+        self._load_tasks_from_db()
 
     def on_search(self, text):
         # integrate search into general filtering
