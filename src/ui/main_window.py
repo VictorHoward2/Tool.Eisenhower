@@ -37,6 +37,20 @@ from models.task import Task
 from db import db
 from services import export as export_service
 
+def parse_date_string(date_str):
+    """Parse date string supporting both dd/MM/yyyy and yyyy-MM-dd formats"""
+    if not date_str:
+        return None
+    try:
+        # Try dd/MM/yyyy format first
+        return datetime.strptime(date_str, "%d/%m/%Y").date()
+    except ValueError:
+        try:
+            # Fallback to yyyy-MM-dd format
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
 PRIORITY_ROWS = ["High", "Medium", "Low"]  # hàng: top -> bottom
 URGENCY_COLS = ["High", "Medium", "Low"]  # cột: left -> right
 
@@ -215,24 +229,36 @@ class AddEditTaskDialog(QDialog):
             if urg:
                 self.urgency_cb.setCurrentText(urg)
 
-            # If prefill contains a due_date, honor it; otherwise default to NO DUE DATE
+            # If prefill contains a due_date, honor it; otherwise default to TODAY
             try:
                 if self.prefill.get("due_date"):
-                    qd = QDate.fromString(self.prefill.get("due_date"), "yyyy-MM-dd")
-                    if qd.isValid():
-                        self.due_date.setDate(qd)
+                    parsed_date = parse_date_string(self.prefill.get("due_date"))
+                    if parsed_date:
+                        qd = QDate.fromString(parsed_date.strftime("%Y-%m-%d"), "yyyy-MM-dd")
+                        if qd.isValid():
+                            self.due_date.setDate(qd)
+                            self.no_due_cb.setChecked(False)
+                            self.due_date.setEnabled(True)
+                        else:
+                            # Invalid date in prefill, default to today
+                            self.due_date.setDate(QDate.currentDate())
+                            self.no_due_cb.setChecked(False)
+                            self.due_date.setEnabled(True)
+                    else:
+                        # Invalid date in prefill, default to today
+                        self.due_date.setDate(QDate.currentDate())
                         self.no_due_cb.setChecked(False)
                         self.due_date.setEnabled(True)
-                    else:
-                        self.no_due_cb.setChecked(True)
-                        self.due_date.setEnabled(False)
                 else:
-                    # default: no due date for new tasks (user wanted empty by default)
-                    self.no_due_cb.setChecked(True)
-                    self.due_date.setEnabled(False)
+                    # default: today's date for new tasks
+                    self.due_date.setDate(QDate.currentDate())
+                    self.no_due_cb.setChecked(False)
+                    self.due_date.setEnabled(True)
             except Exception:
-                self.no_due_cb.setChecked(True)
-                self.due_date.setEnabled(False)
+                # Fallback: today's date
+                self.due_date.setDate(QDate.currentDate())
+                self.no_due_cb.setChecked(False)
+                self.due_date.setEnabled(True)
 
     def build_ui(self):
         self.form = QFormLayout(self)
@@ -244,7 +270,9 @@ class AddEditTaskDialog(QDialog):
         self.urgency_cb.addItems(["High", "Medium", "Low"])  # typo fixed (was 'Ligh')
         self.due_date = QDateEdit()
         self.due_date.setCalendarPopup(True)
-        self.due_date.setDisplayFormat("yyyy-MM-dd")
+        self.due_date.setDisplayFormat("dd/MM/yyyy")
+        # Set default date to today
+        self.due_date.setDate(QDate.currentDate())
         # allow an empty special text
         self.due_date.setSpecialValueText("")
 
@@ -279,14 +307,18 @@ class AddEditTaskDialog(QDialog):
         self.importance_cb.setCurrentText(task.importance)
         self.urgency_cb.setCurrentText(task.urgency)
         if task.due_date:
-            try:
-                qd = QDate.fromString(task.due_date, "yyyy-MM-dd")
+            # Try to parse the date and set it
+            parsed_date = parse_date_string(task.due_date)
+            if parsed_date:
+                qd = QDate.fromString(parsed_date.strftime("%Y-%m-%d"), "yyyy-MM-dd")
                 if qd.isValid():
                     self.due_date.setDate(qd)
                     self.no_due_cb.setChecked(False)
                     self.due_date.setEnabled(True)
-            except Exception:
-                pass
+            else:
+                # Invalid date, default to no due date
+                self.no_due_cb.setChecked(True)
+                self.due_date.setEnabled(False)
         else:
             # no due date on task
             self.no_due_cb.setChecked(True)
@@ -314,8 +346,8 @@ class AddEditTaskDialog(QDialog):
         # Due date handling: if 'No due date' checked -> store None
         d = None
         if not self.no_due_cb.isChecked():
-            if self.due_date.date().isValid() and self.due_date.date().toString("yyyy-MM-dd"):
-                d = self.due_date.date().toString("yyyy-MM-dd")
+            if self.due_date.date().isValid() and self.due_date.date().toString("dd/MM/yyyy"):
+                d = self.due_date.date().toString("yyyy-MM-dd")  # Store in database format
 
         tags_raw = self.tags_edit.text().strip()
         tags = (
@@ -398,12 +430,12 @@ class MainWindow(QMainWindow):
         self.tags_filter.textChanged.connect(self.apply_filters)
         self.from_date_filter = QDateEdit()
         self.from_date_filter.setCalendarPopup(True)
-        self.from_date_filter.setDisplayFormat("yyyy-MM-dd")
+        self.from_date_filter.setDisplayFormat("dd/MM/yyyy")
         self.from_date_filter.setSpecialValueText("")
         self.from_date_filter.dateChanged.connect(self.apply_filters)
         self.to_date_filter = QDateEdit()
         self.to_date_filter.setCalendarPopup(True)
-        self.to_date_filter.setDisplayFormat("yyyy-MM-dd")
+        self.to_date_filter.setDisplayFormat("dd/MM/yyyy")
         self.to_date_filter.setSpecialValueText("")
         self.to_date_filter.dateChanged.connect(self.apply_filters)
         # User requested: default To date = today
@@ -582,10 +614,10 @@ class MainWindow(QMainWindow):
         # format due date / updated_at as dd/mm/yyyy in tooltip
         due_fmt = "—"
         if d.get("due_date"):
-            try:
-                dd = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
+            dd = parse_date_string(d.get("due_date"))
+            if dd:
                 due_fmt = dd.strftime("%d/%m/%Y")
-            except Exception:
+            else:
                 due_fmt = d.get("due_date")
         updated_fmt = d.get("updated_at") or "—"
         if d.get("updated_at"):
@@ -611,16 +643,17 @@ class MainWindow(QMainWindow):
             item.setFont(fnt)
             item.setBackground(QBrush())
             if d.get("due_date"):
-                ddate = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
-                today = datetime.utcnow().date()
-                days_left = (ddate - today).days
-                if ddate < today:
-                    item.setBackground(QBrush(QColor("#ffe6e6")))  # overdue → light red
-                elif days_left <= DUE_SOON_DAYS:
-                    # due soon: make font bold and subtle orange background
-                    fnt.setBold(True)
-                    item.setFont(fnt)
-                    item.setBackground(QBrush(QColor("#fff4e0")))
+                ddate = parse_date_string(d.get("due_date"))
+                if ddate:
+                    today = datetime.utcnow().date()
+                    days_left = (ddate - today).days
+                    if ddate < today:
+                        item.setBackground(QBrush(QColor("#ffe6e6")))  # overdue → light red
+                    elif days_left <= DUE_SOON_DAYS:
+                        # due soon: make font bold and subtle orange background
+                        fnt.setBold(True)
+                        item.setFont(fnt)
+                        item.setBackground(QBrush(QColor("#fff4e0")))
         except Exception:
             pass
 
@@ -862,20 +895,17 @@ class MainWindow(QMainWindow):
         parts.append(f"<b>Urgency:</b> {t.urgency}")
 
         if t.due_date:
-            try:
-                d = datetime.strptime(t.due_date, "%Y-%m-%d").date()
+            d = parse_date_string(t.due_date)
+            if d:
                 due_str = d.strftime("%d/%m/%Y")
-            except Exception:
-                due_str = t.due_date
-            # overdue / due soon tags
-            try:
+                # overdue / due soon tags
                 today = datetime.utcnow().date()
                 if d < today:
                     due_str += "  (<b>OVERDUE</b>)"
                 elif (d - today).days <= DUE_SOON_DAYS:
                     due_str += "  (<b>Due soon</b>)"
-            except Exception:
-                pass
+            else:
+                due_str = t.due_date
             parts.append(f"<b>Due date:</b> {due_str}")
         else:
             parts.append(f"<b>Due date:</b> —")
@@ -1034,12 +1064,7 @@ class MainWindow(QMainWindow):
                 d = json.loads(raw) if raw else {}
             except Exception:
                 d = {}
-            due = None
-            try:
-                if d.get("due_date"):
-                    due = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
-            except Exception:
-                due = None
+            due = parse_date_string(d.get("due_date"))
             items.append((due, d.get("title", it.text()), raw))
         # sort: earliest due first; None last; tie-breaker by title
         items.sort(key=lambda x: (x[0] is None, x[0] or date.max, x[1].lower()))
@@ -1081,13 +1106,9 @@ class MainWindow(QMainWindow):
         to_date = None
         try:
             if date_filter_enabled and from_ok:
-                from_date = datetime.strptime(
-                    self.from_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d"
-                ).date()
+                from_date = self.from_date_filter.date().toPython()
             if date_filter_enabled and to_ok:
-                to_date = datetime.strptime(
-                    self.to_date_filter.date().toString("yyyy-MM-dd"), "%Y-%m-%d"
-                ).date()
+                to_date = self.to_date_filter.date().toPython()
         except Exception:
             from_date = to_date = None
 
@@ -1116,14 +1137,12 @@ class MainWindow(QMainWindow):
                 # due date range (only if date filter enabled)
                 if date_filter_enabled:
                     if (from_date or to_date) and d.get("due_date"):
-                        try:
-                            dd = datetime.strptime(d.get("due_date"), "%Y-%m-%d").date()
+                        dd = parse_date_string(d.get("due_date"))
+                        if dd:
                             if from_date and dd < from_date:
                                 hidden = True
                             if to_date and dd > to_date:
                                 hidden = True
-                        except Exception:
-                            pass
                     elif (from_date or to_date) and not d.get("due_date"):
                         # if user filters by date range but task has no due date -> hide
                         hidden = True
