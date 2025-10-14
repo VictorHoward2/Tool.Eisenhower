@@ -3,7 +3,7 @@ from datetime import datetime, date
 from pathlib import Path
 from functools import partial
 
-from PySide6.QtCore import Qt, Signal, QDate
+from PySide6.QtCore import Qt, Signal, QDate, QTimer
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -60,7 +60,8 @@ PRIORITY_COLORS = {
     "medium": "#ffd166",  # amber
     "low": "#8ecae6",  # blue
 }
-DUE_SOON_DAYS = 3  # tasks within this number of days will be highlighted as "due soon"
+DUE_SOON_DAYS = 1  # tasks within this number of days will be highlighted as "due soon"
+NOTIFICATION_CHECK_INTERVAL = 10000  # Check every 5 minutes (in milliseconds)
 
 # Global stylesheet for a light, modern look with rounded corners and subtle spacing
 APP_STYLE = """
@@ -380,6 +381,13 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._load_tasks_from_db()
         self.update_status_bar()
+        
+        # Check for due tasks notification on startup (with a small delay)
+        QTimer.singleShot(2000, self.check_due_tasks_notification)  # 2 seconds delay
+        
+        # Initialize menu state
+        self.enable_notifications_act.setEnabled(False)  # Disabled when notifications are active
+        self.disable_notifications_act.setEnabled(True)  # Enabled when notifications are active
 
     def _setup_ui(self):
         # Menu
@@ -399,7 +407,21 @@ class MainWindow(QMainWindow):
         view_menu = QMenu("&View", self)
         refresh_act = QAction("Refresh counts", self)
         refresh_act.triggered.connect(self.update_status_bar)
+        check_notifications_act = QAction("Check due tasks", self)
+        # Manual check should work even when notifications are paused
+        check_notifications_act.triggered.connect(self.check_due_tasks_notification_manual)
+        
+        # Add notification control actions
+        self.enable_notifications_act = QAction("Enable Notifications", self)
+        self.enable_notifications_act.triggered.connect(self.resume_notifications)
+        self.disable_notifications_act = QAction("Disable Notifications", self)
+        self.disable_notifications_act.triggered.connect(self.pause_notifications)
+        
         view_menu.addAction(refresh_act)
+        view_menu.addAction(check_notifications_act)
+        view_menu.addSeparator()
+        view_menu.addAction(self.enable_notifications_act)
+        view_menu.addAction(self.disable_notifications_act)
         menubar.addMenu(view_menu)
 
         help_menu = QMenu("&Help", self)
@@ -574,6 +596,13 @@ class MainWindow(QMainWindow):
         # internal state
         self.selected_task_id = None
         self._clearing_selection = False  # Flag to prevent recursive calls
+        
+        # notification system
+        self.notification_timer = QTimer()
+        self.notification_timer.timeout.connect(self.check_due_tasks_notification)
+        self.notification_timer.start(NOTIFICATION_CHECK_INTERVAL)  # Check every 10 seconds
+        self.last_notification_check = datetime.utcnow()
+        self.notifications_paused = False  # Track if notifications are paused
 
     def _load_tasks_from_db(self):
         tasks = db.load_all_tasks()
@@ -1170,3 +1199,123 @@ class MainWindow(QMainWindow):
         self.date_filter_checkbox.setChecked(False)  # reset date filter checkbox
         self.search.setText("")
         self.apply_filters()
+
+    def _compute_due_tasks(self):
+        """Compute overdue and due-soon task lists based on today's date."""
+        today = datetime.utcnow().date()
+        due_soon_tasks = []
+        overdue_tasks = []
+        for task in self.tasks.values():
+            if not task.due_date:
+                continue
+            due_date = parse_date_string(task.due_date)
+            if not due_date:
+                continue
+            days_left = (due_date - today).days
+            if due_date < today:
+                overdue_tasks.append(task)
+            elif days_left <= DUE_SOON_DAYS:
+                due_soon_tasks.append(task)
+        return overdue_tasks, due_soon_tasks
+
+    def check_due_tasks_notification(self):
+        """Automatic periodic check - respects paused state."""
+        if self.notifications_paused:
+            return
+        overdue_tasks, due_soon_tasks = self._compute_due_tasks()
+        if overdue_tasks or due_soon_tasks:
+            self.show_due_tasks_notification(overdue_tasks, due_soon_tasks)
+        self.last_notification_check = datetime.utcnow()
+
+    def check_due_tasks_notification_manual(self):
+        """Manual check from menu - always runs, even if paused."""
+        overdue_tasks, due_soon_tasks = self._compute_due_tasks()
+        if overdue_tasks or due_soon_tasks:
+            self.show_due_tasks_notification(overdue_tasks, due_soon_tasks)
+        else:
+            QMessageBox.information(self, "Due Tasks", "No overdue or due-soon tasks.")
+
+    def show_due_tasks_notification(self, overdue_tasks, due_soon_tasks):
+        """Show notification dialog for due tasks"""
+        message_parts = []
+        
+        if overdue_tasks:
+            message_parts.append(f"🔴 <b>OVERDUE TASKS ({len(overdue_tasks)}):</b>")
+            for task in overdue_tasks[:5]:  # Show max 5 tasks
+                due_date = parse_date_string(task.due_date)
+                days_overdue = (datetime.utcnow().date() - due_date).days
+                message_parts.append(f"• {task.title} ({days_overdue} days overdue)")
+            if len(overdue_tasks) > 5:
+                message_parts.append(f"... and {len(overdue_tasks) - 5} more overdue tasks")
+            message_parts.append("")
+        
+        if due_soon_tasks:
+            message_parts.append(f"🟠 <b>DUE SOON ({len(due_soon_tasks)}):</b>")
+            for task in due_soon_tasks[:5]:  # Show max 5 tasks
+                due_date = parse_date_string(task.due_date)
+                days_left = (due_date - datetime.utcnow().date()).days
+                message_parts.append(f"• {task.title} (due in {days_left} day{'s' if days_left != 1 else ''})")
+            if len(due_soon_tasks) > 5:
+                message_parts.append(f"... and {len(due_soon_tasks) - 5} more tasks due soon")
+        
+        if message_parts:
+            message = "<br/>".join(message_parts)
+            message += "<br/><br/><i>Tip: Use filters to focus on urgent tasks!</i>"
+            message += "<br/><br/><small><b>Note:</b> Clicking 'Dismiss' will pause automatic notifications until manually re-enabled.</small>"
+            
+            # Create custom message box
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("📅 Task Due Notifications")
+            msg_box.setText(message)
+            msg_box.setIcon(QMessageBox.Warning)
+            
+            # Add buttons
+            msg_box.addButton("View All Tasks", QMessageBox.AcceptRole)
+            dismiss_btn = msg_box.addButton("Dismiss", QMessageBox.RejectRole)
+            
+            # Show the message box
+            result = msg_box.exec()
+            
+            if result == QMessageBox.AcceptRole:
+                # User wants to view all tasks - clear filters to show all
+                self.clear_filters()
+                # Focus on the window
+                self.activateWindow()
+                self.raise_()
+            elif msg_box.clickedButton() == dismiss_btn:
+                # User clicked Dismiss - pause automatic notifications
+                self.pause_notifications()
+
+    def pause_notifications(self):
+        """Pause automatic notifications"""
+        self.notifications_paused = True
+        self.notification_timer.stop()
+        
+        # Update menu state
+        self.enable_notifications_act.setEnabled(True)
+        self.disable_notifications_act.setEnabled(False)
+        
+        # Show confirmation message
+        QMessageBox.information(
+            self,
+            "Notifications Paused",
+            "Automatic due task notifications have been paused.\n\n"
+            "You can re-enable them anytime from the View menu → 'Enable Notifications'."
+        )
+
+    def resume_notifications(self):
+        """Resume automatic notifications"""
+        self.notifications_paused = False
+        self.notification_timer.start(NOTIFICATION_CHECK_INTERVAL)
+        
+        # Update menu state
+        self.enable_notifications_act.setEnabled(False)
+        self.disable_notifications_act.setEnabled(True)
+        
+        # Show confirmation message
+        QMessageBox.information(
+            self,
+            "Notifications Enabled",
+            "Automatic due task notifications have been re-enabled.\n\n"
+            "The app will check for due tasks every 10 seconds."
+        )
