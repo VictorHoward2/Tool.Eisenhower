@@ -1337,7 +1337,7 @@ class MainWindow(QMainWindow):
             
             # Create custom message box
             msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("📅 Task Due Notifications")
+            msg_box.setWindowTitle("Task Due Notifications")
             msg_box.setText(message)
             msg_box.setIcon(QMessageBox.Warning)
             
