@@ -61,8 +61,8 @@ PRIORITY_COLORS = {
     "medium": "#ffd166",  # amber
     "low": "#8ecae6",  # blue
 }
-DUE_SOON_DAYS = 1  # tasks within this number of days will be highlighted as "due soon"
-NOTIFICATION_CHECK_INTERVAL = 10000  # Check every 5 minutes (in milliseconds)
+DUE_SOON_DAYS = 7  # tasks within this number of days will be highlighted as "due soon"
+NOTIFICATION_CHECK_INTERVAL = 3600000  # Check every 5 minutes (in milliseconds)
 
 # Global stylesheet for a light, modern look with rounded corners and subtle spacing
 APP_STYLE = """
@@ -384,7 +384,7 @@ class MainWindow(QMainWindow):
         self.update_status_bar()
         
         # Check for due tasks notification on startup (with a small delay)
-        QTimer.singleShot(2000, self.check_due_tasks_notification)  # 2 seconds delay
+        QTimer.singleShot(300, self.check_due_tasks_notification)  # 2 seconds delay
         
         # Initialize menu state
         self.enable_notifications_act.setEnabled(False)  # Disabled when notifications are active
