@@ -573,6 +573,7 @@ class MainWindow(QMainWindow):
 
         # internal state
         self.selected_task_id = None
+        self._clearing_selection = False  # Flag to prevent recursive calls
 
     def _load_tasks_from_db(self):
         tasks = db.load_all_tasks()
@@ -865,6 +866,17 @@ class MainWindow(QMainWindow):
         self.apply_filters()
 
     def on_cell_selection_changed(self, lw: CellListWidget):
+        # Prevent recursive calls when clearing selection
+        if self._clearing_selection:
+            return
+            
+        # Clear selection in all other cells first
+        self._clearing_selection = True
+        for cell_key, cell_widget in self.cells.items():
+            if cell_widget != lw:
+                cell_widget.clearSelection()
+        self._clearing_selection = False
+        
         # show first selected item in details panel
         sel = lw.selectedItems()
         if not sel:
