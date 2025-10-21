@@ -371,7 +371,7 @@ class AddEditTaskDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Eisenhower 3x3 - Polished UI")
+        self.setWindowTitle("Eisenhower 3x3")
         # set a pleasant default font for the app
         self.setFont(QFont("Segoe UI", 10))
         # apply stylesheet for modern rounded light theme
@@ -1129,7 +1129,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "About",
-            "Eisenhower 3x3 - Polished UI\nImprovements: detail panel, context menu, overdue highlight, status bar, keyboard shortcuts.\n\nNew in this version: filters (importance/tags/due date range), priority color icons, stronger 'due soon' highlighting, and tags support in the task dialog.",
+            "Eisenhower 3x3 - \n Contact: huy.nq2@samsung.com.",
         )
 
     def open_settings_dialog(self):
@@ -1143,10 +1143,10 @@ class MainWindow(QMainWindow):
         due_soon_spin.setSuffix(" day(s)")
 
         interval_spin = QSpinBox(dlg)
-        interval_spin.setRange(1000, 3600_000)
-        interval_spin.setSingleStep(1000)
-        interval_spin.setValue(NOTIFICATION_CHECK_INTERVAL)
-        interval_spin.setSuffix(" ms")
+        interval_spin.setRange(1, 3600)
+        interval_spin.setSingleStep(1)
+        interval_spin.setValue(NOTIFICATION_CHECK_INTERVAL / 60000)
+        interval_spin.setSuffix(" minutes")
 
         form.addRow("Due soon threshold:", due_soon_spin)
         form.addRow("Notification interval:", interval_spin)
