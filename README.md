@@ -136,11 +136,12 @@ The application stores data in a SQLite database located at:
 
 The application implements the classic Eisenhower Matrix:
 
-| | Low Urgency | Medium Urgency | High Urgency |
-|---|---|---|---|
-| **High Importance** | Schedule | Important & Urgent | Do First |
-| **Medium Importance** | Delegate | Plan | Delegate |
-| **Low Importance** | Eliminate | Eliminate | Eliminate |
+| **Importance ↓ / Urgency →** | **Low Urgency**                                                                                               | **Medium Urgency**                                                                                              | **High Urgency**                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **High Importance**          | 🕒 **Plan & Schedule**<br><small>Quan trọng nhưng chưa gấp — lên lịch làm sau, cần đầu tư chất lượng.</small> | 🚀 **Prioritize & Prepare**<br><small>Bắt đầu chuẩn bị hoặc xử lý sớm để tránh trở thành việc khẩn cấp.</small> | 🔥 **Do Immediately**<br><small>Quan trọng và khẩn cấp — làm ngay, không trì hoãn.</small>                 |
+| **Medium Importance**        | 🌿 **Review / Maybe Later**<br><small>Việc trung bình, có thể xem lại sau nếu còn thời gian.</small>          | 🧭 **Do Soon / Manage**<br><small>Xử lý khi có cơ hội, tránh để tồn đọng thành việc khẩn.</small>               | 🤝 **Delegate or Support**<br><small>Không nhất thiết tự làm — có thể hỗ trợ hoặc giao người khác.</small> |
+| **Low Importance**           | ❌ **Eliminate / Ignore**<br><small>Không mang lại giá trị — loại bỏ hoặc bỏ qua.</small>                      | 📨 **Delegate / Automate**<br><small>Nếu có ích nhỏ, hãy giao hoặc tự động hóa.</small>                         | ⚠️ **Minimize Distraction**<br><small>Không quan trọng nhưng khẩn — xử lý nhanh hoặc né tránh.</small>     |
+
 
 ## 🛠️ Development
 
